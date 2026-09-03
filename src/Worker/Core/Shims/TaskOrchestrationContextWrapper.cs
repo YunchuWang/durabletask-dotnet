@@ -473,7 +473,7 @@ sealed partial class TaskOrchestrationContextWrapper : TaskOrchestrationContext
     /// <param name="rawEventPayload">The serialized event payload.</param>
     internal void CompleteExternalEvent(string eventName, string rawEventPayload)
     {
-        if (this.externalEventSources.TryGetValue(eventName, out IEventSource? waiter))
+        while (this.externalEventSources.TryGetValue(eventName, out IEventSource? waiter))
         {
             // Get the waiter at the top of the stack (most recent waiter)
             // If we're going to raise an event we should remove it from the pending collection
@@ -501,7 +501,24 @@ sealed partial class TaskOrchestrationContextWrapper : TaskOrchestrationContext
                 value = this.DataConverter.Deserialize(rawEventPayload, waiter.EventType);
             }
 
-            waiter.TrySetResult(value);
+            if (waiter.TrySetResult(value))
+            {
+                // The event was delivered to a live waiter. We're done.
+                return;
+            }
+
+            // This waiter was already completed, canceled, or abandoned (e.g. the losing side of a
+            // Task.WhenAny) and cannot accept the event. It has already been popped off the stack above,
+            // so continue the loop to try the next waiter underneath it, if any. If there are no more
+            // waiters, fall through to the buffering/forwarding logic below as if no one was listening.
+        }
+
+        if (this.preserveUnprocessedEventsOnContinueAsNew)
+        {
+            // ContinueAsNew has already been scheduled with event preservation enabled.
+            // Forward late-arriving events directly to the next execution instead of buffering
+            // them on the current wrapper instance, which is about to be discarded.
+            this.ForwardRawExternalEvent(eventName, rawEventPayload);
         }
         else
         {
