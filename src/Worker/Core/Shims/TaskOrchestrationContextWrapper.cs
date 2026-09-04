@@ -522,19 +522,9 @@ sealed partial class TaskOrchestrationContextWrapper : TaskOrchestrationContext
         }
         else
         {
-            if (this.preserveUnprocessedEventsOnContinueAsNew)
-            {
-                // ContinueAsNew has already been scheduled with event preservation enabled.
-                // Forward late-arriving events directly to the next execution instead of buffering
-                // them on the current wrapper instance, which is about to be discarded.
-                this.ForwardRawExternalEvent(eventName, rawEventPayload);
-            }
-            else
-            {
-                // The orchestrator isn't waiting for this event (yet?). Save it in case
-                // the orchestrator wants it later.
-                this.externalEventBuffer.Add(eventName, rawEventPayload);
-            }
+            // The orchestrator isn't waiting for this event (yet?). Save it in case
+            // the orchestrator wants it later.
+            this.externalEventBuffer.Add(eventName, rawEventPayload);
         }
     }
 
