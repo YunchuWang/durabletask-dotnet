@@ -453,7 +453,12 @@ public class TaskOrchestrationContextWrapperTests
         // (e.g. a loop that repeatedly races and abandons the same event). None of them should
         // be able to consume the event.
         TrackingOrchestrationContext innerContext = new();
-        OrchestrationInvocationContext invocationContext = new("Test", new(), NullLoggerFactory.Instance, null);
+        CountingDataConverter converter = new();
+        OrchestrationInvocationContext invocationContext = new(
+            "Test",
+            new DurableTaskWorkerOptions { DataConverter = converter },
+            NullLoggerFactory.Instance,
+            null);
         TaskOrchestrationContextWrapper wrapper = new(innerContext, invocationContext, "input");
 
         using CancellationTokenSource cts1 = new();
@@ -470,6 +475,7 @@ public class TaskOrchestrationContextWrapperTests
         InvokeCompleteExternalEvent(wrapper, "event_1", "\"payload\"");
 
         // Assert
+        converter.DeserializeCallCounts[typeof(string)].Should().Be(1);
         wait1.IsCanceled.Should().BeTrue();
         wait2.IsCanceled.Should().BeTrue();
         wait3.IsCanceled.Should().BeTrue();
@@ -511,6 +517,19 @@ public class TaskOrchestrationContextWrapperTests
     static void InvokeCompleteExternalEvent(TaskOrchestrationContextWrapper wrapper, string eventName, string rawEventPayload)
     {
         CompleteExternalEventMethod.Invoke(wrapper, [eventName, rawEventPayload]);
+    }
+
+    sealed class CountingDataConverter : DataConverter
+    {
+        public Dictionary<Type, int> DeserializeCallCounts { get; } = [];
+
+        public override object? Deserialize(string? data, Type targetType)
+        {
+            this.DeserializeCallCounts[targetType] = this.DeserializeCallCounts.GetValueOrDefault(targetType) + 1;
+            return targetType == typeof(string) ? "payload" : null;
+        }
+
+        public override string? Serialize(object? value) => throw new NotSupportedException();
     }
 
     sealed class TrackingOrchestrationContext : OrchestrationContext

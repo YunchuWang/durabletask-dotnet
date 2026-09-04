@@ -473,6 +473,7 @@ sealed partial class TaskOrchestrationContextWrapper : TaskOrchestrationContext
     /// <param name="rawEventPayload">The serialized event payload.</param>
     internal void CompleteExternalEvent(string eventName, string rawEventPayload)
     {
+        Dictionary<Type, object?>? deserializedValues = null;
         while (this.externalEventSources.TryGetValue(eventName, out IEventSource? waiter))
         {
             // Get the waiter at the top of the stack (most recent waiter)
@@ -489,16 +490,21 @@ sealed partial class TaskOrchestrationContextWrapper : TaskOrchestrationContext
                 this.externalEventSources[eventName] = next;
             }
 
-            object? value;
-            if (waiter.EventType == typeof(OperationResult))
+            deserializedValues ??= new Dictionary<Type, object?>();
+            if (!deserializedValues.TryGetValue(waiter.EventType, out object? value))
             {
-                // use the framework-defined deserialization for entity responses, not the application-defined data converter,
-                // because we are just unwrapping the entity response without yet deserializing any application-defined data.
-                value = this.entityFeature!.EntityContext.DeserializeEntityResponseEvent(rawEventPayload);
-            }
-            else
-            {
-                value = this.DataConverter.Deserialize(rawEventPayload, waiter.EventType);
+                if (waiter.EventType == typeof(OperationResult))
+                {
+                    // use the framework-defined deserialization for entity responses, not the application-defined data converter,
+                    // because we are just unwrapping the entity response without yet deserializing any application-defined data.
+                    value = this.entityFeature!.EntityContext.DeserializeEntityResponseEvent(rawEventPayload);
+                }
+                else
+                {
+                    value = this.DataConverter.Deserialize(rawEventPayload, waiter.EventType);
+                }
+
+                deserializedValues[waiter.EventType] = value;
             }
 
             if (waiter.TrySetResult(value))
